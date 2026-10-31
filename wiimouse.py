@@ -8,9 +8,9 @@ import tkinter as tk
 from pynput.mouse import Button, Controller
 
 # Settings
-SMOOTHING = 0.5
-SCROLL_DELAY = 0.1
-EDGE_MAGRIN = 0.05
+SMOOTHING = 0.35
+SCROLL_DELAY = 0.08
+EDGE_MAGRIN = 0.04
 
 NINTENDO_VID = 0x057E
 WIIMOTE_PIDS = (0x0306, 0x0330)
