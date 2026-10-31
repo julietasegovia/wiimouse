@@ -13,8 +13,7 @@ EDGE_MARGIN = 0.04
 
 IR_W, IR_H = 1023, 767
 ABS_MAX = 32767
-IR_AXES = [(e.ABS_HAT0X, e.ABS_HAT0Y), (e.ABS_HAT1X, e.ABS_HAT1Y), (e.ABS_HAT2X, e.ABS_HAT2Y), (e.ABS_HAT3, e.ABS_HAT3Y)]
-
+IR_AXES = [(e.ABS_HAT0X, e.ABS_HAT0Y), (e.ABS_HAT1X, e.ABS_HAT1Y), (e.ABS_HAT2X, e.ABS_HAT2Y), (e.ABS_HAT3X, e.ABS_HAT3Y)]
 def find_devices():
     buttons = ir = None
     for path in list_devices():
@@ -61,11 +60,11 @@ def build_regions(monitors):
 
 def main():
     parser = argparse.ArgumentParser(description="Use the wiimote as a mouse")
-    parser.add_argument("--list", actions="store_true", help="list detected monitors and exit")
-    parser.add_argument("--moitor", default="all", help='monitor number (1, 2, ...) or "all" (default)')
+    parser.add_argument("--list", action="store_true", help="list detected monitors and exit")
+    parser.add_argument("--monitor", default="all", help='monitor number (1, 2, ...) or "all" (default)')
     args = parser.parse_args()
     monitors = get_monitors()
-    regions = build_regions()
+    regions = build_regions(monitors)
 
     if args.list:
         if not monitors:
@@ -105,7 +104,7 @@ def main():
             name="Wiimote Virtual Mouse"
         )
     except PermissionError:
-        print("No permits, try sudo chmopd 66 /dev/uinput")
+        print("No permits, try sudo chmod 666 /dev/uinput")
         sys.exit(1)
 
     buttons.grab()
@@ -178,16 +177,16 @@ def main():
                                 ui.write(e.EV_ABS, e.ABS_Y, int(sy))
                                 ui.syn()
 
-                now = time.time()
-                if now - last_scroll > SCROLL_DELAY:
-                    if up:
-                        ui.write(e.EV_REL, e.REL_HWHEEL, 1)
-                        ui.syn()
-                        last_scroll = now
-                    elif down:
-                        ui.write(e.EV_REL, e.REL_WHEEL, -1)
-                        ui.syn()
-                        last_scroll = now
+            now = time.time()
+            if now - last_scroll > SCROLL_DELAY:
+                if up:
+                    ui.write(e.EV_REL, e.REL_WHEEL, 1)
+                    ui.syn()
+                    last_scroll = now
+                elif down:
+                    ui.write(e.EV_REL, e.REL_WHEEL, -1)
+                    ui.syn()
+                    last_scroll = now
 
     except (KeyboardInterrupt, OSError):
         pass
