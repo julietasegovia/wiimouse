@@ -1,8 +1,10 @@
+import glob
+import os
+import select
 import sys
 import time
 import tkinter as tk
 
-import hid
 from pynput.mouse import Button, Controller
 
 # Settings
@@ -17,32 +19,57 @@ B1_LEFT, B1_RIGHT, B1_DOWN, B1_UP = 0x01, 0x02, 0x04, 0x08
 B2_B, B2_A, B2_HOME = 0x04, 0x08, 0x80
 
 def find_wiimote():
-    for pid in WIIMOTE_PIDS:
-        devices = hid.enumerate(NINTENDO_VID, pid)
-        if devices:
-            dev = hid.device()
-            dev.open_path(devices[0]["path"])
-            return dev
-        return None
+    for path in sorted(glob.glob("/dev/hidraw*")):
+        name = os.path.basename(path)
+        uevent = f"/sys/class/hidraw/{name}/device/uevent"
+        try:
+            with open(uevent) as f:
+                for line in f:
+                    if line.startswith("HID_ID=") and "0000057E" in line.upper():
+                        return path
+        except OSError:
+            continue
+    return None
 
-def write_reg(dev, addr, data):
-    payload = bytes([0x16, 0x04, (addr >> 16) & 0xFF, (addr >> 8) & 0xFF, addr & 0xFF, len(data)] + bytes(data).ljust(16, b"\x00"))
-    dev.write(payload)
-    time.sleep(0.05)
 
-def init_ir_and_reporting(dev):
-    dev.write(bytes([0x13, 0x04]))
-    time.sleep(0.05)
-    dev.write(bytes([0x1A, 0x04]))
-    time.sleep(0.05)
-    write_reg(dev, 0xB00030, [0x08])
-    write_reg(dev, 0xB00000, [0x02, 0x00, 0x00, 0x71, 0x01, 0x00, 0xAA, 0x00, 0x64])
-    write_reg(dev, 0xB0001A, [0x63, 0x03])
-    write_reg(dev, 0xB00033, [0x03])
-    write_reg(dev, 0xB00030, [0x08])
-    dev.write(bytes([0x12, 0x04, 0x33]))
-    time.sleep(0.05)
-    dev.write(bytes([0x11, 0x10]))
+class Wiimote:
+    def __init__(self, path):
+        self.fd = os.open(path, os.O_RDWR)
+
+    def write(self, data):
+        os.write(self.fd, bytes(data))
+
+    def read(self, timeout=0.2):
+        r, _, _ = select.select([self.fd], [], [], timeout)
+        if not r:
+            return None
+        return os.read(self.fd, 32)
+
+    def write_reg(self, addr, data):
+        payload = bytes([0x16, 0x04, (addr >> 16) & 0xFF, (addr >> 8) & 0xFF, addr & 0xFF, len(data)]) + bytes(data).ljust(16, b"\x00")
+        self.write(payload)
+        time.sleep(0.05)
+
+    def init_ir(self):
+        self.write([0x13, 0x04])
+        time.sleep(0.05)
+        self.write([0x1A, 0x04])
+        time.sleep(0.05)
+        self.write_reg(0xB00030, [0x08])
+        self.write_reg(0xB00000, [0x02, 0x00, 0x00, 0x71, 0x01, 0x00, 0xAA, 0x00, 0x64])
+        self.write_reg(0xB0001A, [0x63, 0x03])
+        self.write_reg(0xB00033, [0x03])
+        self.write_reg(0xB00030, [0x08])
+        self.write([0x12, 0x04, 0x33])
+        time.sleep(0.05)
+        self.write([0x11, 0x10])
+
+    def close(self):
+        try:
+            self.write([0x12, 0x00, 0x30])
+        except OSError:
+            pass
+        os.close(self.id) 
 
 def parse_ir(data):
     points = []
@@ -57,9 +84,14 @@ def parse_ir(data):
     return points
 
 def main():
-    dev = find_wiimote()
-    if dev is None:
-        print("No Wiimote Found.")
+    path = find_wiimote_path()
+    if path is None:
+        print("No wiimote found")
+        sys.exit(1)
+    try:
+        wm = Wiimote(path)
+    except PermissionError:
+        print(f"No permits to open {path}. Check udev or use sudo chmod 666 {path}")
         sys.exit(1)
 
     root = tk.Tk()
@@ -67,8 +99,8 @@ def main():
     root.destroy()
 
     mouse = Controller()
-    init_ir_and_reporting(dev)
-    print("Wiimote connected. Press HOME to quit")
+    wm.init_ir()
+    print(f"Wiimote connected {path}. Press HOME to exit")
 
     sx, sy = mouse.position
     a_down = b_down = False
@@ -76,23 +108,21 @@ def main():
 
     try:
         while True:
-            data = dev.read(32, 200)
-            if not data or data[0] != 0x33:
+            data = wm.read()
+            if not data or data[0] != 0x33 or len(data) < 18:
                 continue
 
             b1, b2 = data[1], data[2]
-
             pts = parse_ir(data)
             if len(pts) >= 2:
                 pts.sort()
                 (x1, y1), (x2, y2) = pts[0], pts[-1]
-                mx, my = (x1 + x2)/2, (y1 + y2)/2
+                mx, my = (x1 + x2) / 2, (y1 + y2) /2
 
                 nx = 1.0 -mx / IR_W
                 ny = my / IR_H
-
-                nx = (nx - EDGE_MAGRIN) / (1-2 * EDGE_MAGRIN)
-                ny = (ny - EDGE_MAGRIN) / (1-2 * EDGE_MAGRIN)
+                nx = (nx - EDGE_MAGRIN) / (1 - 2 * EDGE_MAGRIN)
+                ny = (ny - EDGE_MAGRIN) / (1 - 2 * EDGE_MAGRIN)
                 nx = min(max(nx, 0.0), 1.0)
                 ny = min(max(ny, 0.0), 1.0)
 
@@ -101,23 +131,21 @@ def main():
                 sy += (ty - sy) * (1 - SMOOTHING)
                 mouse.position = (int(sx), int(sy))
 
-            # buttons. A for left click B for right click
             a_now = bool(b2 & B2_A)
             b_now = bool(b2 & B2_B)
 
             if a_now and not a_down:
                 mouse.press(Button.left)
-            elif not a_now and a_down:
+            elif a_now and a_down:
                 mouse.release(Button.left)
 
             if b_now and not b_down:
                 mouse.press(Button.right)
-            elif not b_now and b_down:
+            elif b_now and b_down:
                 mouse.release(Button.right)
 
             a_down, b_down = a_now, b_now
 
-            # D-pad scroll
             now = time.time()
             if now - last_scroll > SCROLL_DELAY:
                 if b1 & B1_UP:
@@ -127,19 +155,18 @@ def main():
                     mouse.scroll(0, -1)
                     last_scroll = now
 
-            if b2 & B2_HOME:
-                break
+                if b2 & B2_HOME:
+                    break
 
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, OSError):
         pass
     finally:
         if a_down:
             mouse.release(Button.left)
         if b_down:
             mouse.release(Button.right)
-        dev.write(bytes([0x12, 0x00, 0x30]))
-        dev.close()
-        print("Bye")
+        wm.close()
+        print("Bye!")
 
 if __name__ == "__main__":
     main()
