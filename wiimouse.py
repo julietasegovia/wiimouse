@@ -18,7 +18,7 @@ IR_W, IR_H = 1024, 768
 B1_LEFT, B1_RIGHT, B1_DOWN, B1_UP = 0x01, 0x02, 0x04, 0x08
 B2_B, B2_A, B2_HOME = 0x04, 0x08, 0x80
 
-def find_wiimote():
+def find_wiimote_path():
     for path in sorted(glob.glob("/dev/hidraw*")):
         name = os.path.basename(path)
         uevent = f"/sys/class/hidraw/{name}/device/uevent"
