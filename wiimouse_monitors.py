@@ -9,11 +9,16 @@ from evdev import AbsInfo, InputDevice, UInput, ecodes as e, list_devices
 
 SMOOTHING = 0.35
 SCROLL_DELAY = 0.08
-EDGE_MARGIN = 0.04
+EDGE_MARGIN = 0.01
+VOLUME_FIRST_DELAY = 0.4
+VOLUME_REPEAT = 0.1
 
+PLUS_CODES = (e.KEY_NEXT, e.BTN_START)
+MINUS_CODES = (e.KEY_PREVIOUS, e.BTN_SELECT)
 IR_W, IR_H = 1023, 767
 ABS_MAX = 32767
 IR_AXES = [(e.ABS_HAT0X, e.ABS_HAT0Y), (e.ABS_HAT1X, e.ABS_HAT1Y), (e.ABS_HAT2X, e.ABS_HAT2Y), (e.ABS_HAT3X, e.ABS_HAT3Y)]
+
 def find_devices():
     buttons = ir = None
     for path in list_devices():
@@ -27,6 +32,12 @@ def find_devices():
         elif name == "Nintendo Wii Remote IR":
             ir = dev
     return buttons, ir
+
+def tap_key(kb, key):
+    kb.write(e.EV_KEY, key, 1)
+    kb.syn()
+    kb.write(e.EV_KEY, key, 0)
+    kb.syn()
 
 def get_monitors():
     try:
@@ -103,6 +114,7 @@ def main():
             },
             name="Wiimote Virtual Mouse"
         )
+        kb = UInput({e.EV_KEY: [e.KEY_VOLUMEUP, e.KEY_VOLUMEDOWN]}, name="Wiimote Virtual Keys")
     except PermissionError:
         print("No permits, try sudo chmod 666 /dev/uinput")
         sys.exit(1)
@@ -117,6 +129,8 @@ def main():
     sx = sy = None
     up = down = False
     last_scroll = 0.0
+    vol_dir = 0
+    vol_next = 0.0
     running = True
 
     try:
@@ -136,6 +150,14 @@ def main():
                             up = ev.value != 0
                         elif ev.code == e.KEY_DOWN:
                             down = ev.value != 0
+                        elif ev.code in PLUS_CODES or ev.code in MINUS_CODES:
+                            direction = 1 if ev.code in PLUS_CODES else -1
+                            if ev.value == 1:
+                                tap_key(kb, e.KEY_VOLUMEUP if direction == 1 else e.KEY_VOLUMEDOWN)
+                                vol_dir = direction
+                                vol_next = time.time() + VOLUME_FIRST_DELAY
+                            elif ev.value == 0 and vol_dir == direction:
+                                vol_dir = 0
                         elif ev.code == e.BTN_1 and ev.value == 1:
                             mode = (mode + 1) % len(regions)
                             sx = sy = None  # jump straight to the new monitor
@@ -188,6 +210,10 @@ def main():
                     ui.syn()
                     last_scroll = now
 
+            if vol_dir and now >= vol_next:
+                tap_key(kb, e.KEY_VOLUMEUP if vol_dir == 1 else e.KEY_VOLUMEDOWN)
+                vol_next = now + VOLUME_REPEAT
+
     except (KeyboardInterrupt, OSError):
         pass
     finally:
@@ -197,6 +223,7 @@ def main():
             except OSError:
                 pass
         ui.close()
+        kb.close
         print("Bye!")
 
 if __name__ == "__main__":
