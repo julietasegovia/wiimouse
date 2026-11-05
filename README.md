@@ -11,6 +11,10 @@ So, I remembered my old Wii and realized that the system of the Wiimote is exact
 - A powered sensorbar
 - Python3 with the packages python3-devel, gcc and xrandr
 
+## Video Demo
+
+[Here] (https://drive.google.com/file/d/1k8awHS2si7uaI_aQeHk4bku0rFye6q7g/view?usp=sharing)
+
 ## Controls
 
 Button | Action
